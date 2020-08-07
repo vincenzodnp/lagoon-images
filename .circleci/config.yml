@@ -1,0 +1,38 @@
+# CircleCI configuration file
+
+version: 2.1
+
+jobs:
+  build:
+    machine:
+      image: circleci/classic:latest
+      docker_layer_caching: true
+    steps:
+      - checkout
+      - run:
+          name: Build base images
+          command: |
+            make -j4 build
+      - run:
+          name: Bring up local Lagoon stack
+          command: |
+            make up
+      - run:
+          name: Bring up local k3d stack
+          command: |
+            make k3d
+      - run:
+          name: Run local k8s tests
+          command: |
+            make k8s-tests
+      - run:
+          name: Clean up after ourselves
+          command: |
+            make down
+            make k3d/clean
+
+workflows:
+  version: 2
+  commit:
+    jobs:
+      - build
