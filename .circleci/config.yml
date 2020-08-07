@@ -12,10 +12,10 @@ jobs:
       #     command: |
       #       make -j4 build
       - run:
-        name: Check installed versions
-        command: |
-          docker -v
-          docker-compose -v
+          name: Check installed versions
+          command: |
+            docker -v
+            docker-compose -v
       - run:
           name: Bring up local Lagoon stack
           command: |
