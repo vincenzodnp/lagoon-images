@@ -4,7 +4,8 @@ version: 2.1
 
 jobs:
   build:
-    machine: true
+    machine:
+      image: ubuntu-1604:202007-01
     steps:
       - checkout
       # - run:
@@ -12,10 +13,10 @@ jobs:
       #     command: |
       #       make -j4 build
       - run:
-          name: Check installed versions
-          command: |
-            docker -v
-            docker-compose -v
+        name: Check installed versions
+        command: |
+          docker -v
+          docker-compose -v
       - run:
           name: Bring up local Lagoon stack
           command: |
