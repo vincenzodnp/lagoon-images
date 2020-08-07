@@ -4,14 +4,18 @@ version: 2.1
 
 jobs:
   build:
-    machine:
-      image: circleci/classic:latest
+    machine: true
     steps:
       - checkout
       # - run:
       #     name: Build base images
       #     command: |
       #       make -j4 build
+      - run:
+        name: Check installed versions
+        command: |
+          docker -v
+          docker-compose -v
       - run:
           name: Bring up local Lagoon stack
           command: |
