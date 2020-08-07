@@ -166,7 +166,7 @@ build/varnish-persistent: build/varnish images/varnish/Dockerfile
 build/varnish-persistent-drupal: build/varnish-persistent images/varnish-drupal/Dockerfile
 build/docker-host: build/commons images/docker-host/Dockerfile
 build/athenapdf-service: build/commons images/athenapdf-service/Dockerfile
-build/toolbox: build/commons images/toolbox/Dockerfile
+build/toolbox: build/commons build/mariadb images/toolbox/Dockerfile
 build/kubectl-build-deploy-dind: build/kubectl images/kubectl-build-deploy-dind
 
 #######
