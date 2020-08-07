@@ -8,19 +8,26 @@ jobs:
       image: ubuntu-1604:202007-01
     steps:
       - checkout
-      # - run:
-      #     name: Build base images
-      #     command: |
-      #       make -j4 build
       - run:
           name: Check installed versions
           command: |
             docker -v
             docker-compose -v
       - run:
+          name: Build base images
+          command: |
+            make -j6 build
+            docker image ls
+      - run:
+          name: Pull core images
+          command: |
+            make pull
+            docker image ls
+      - run:
           name: Bring up local Lagoon stack
           command: |
             make up
+            docker-compose -p lagoon ps -a
       - run:
           name: Bring up local k3d stack
           command: |
