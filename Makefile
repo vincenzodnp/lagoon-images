@@ -540,7 +540,7 @@ logs:
 
 # Start all Lagoon Services
 up:
-	IMAGE_REPO=$(CORE_IMAGE_REPO) IMAGE_TAG=$(CORE_IMAGE_TAG) docker-compose -p $(CI_BUILD_TAG) pull --include-deps
+	IMAGE_REPO=$(CORE_IMAGE_REPO) IMAGE_TAG=$(CORE_IMAGE_TAG) docker-compose -p $(CI_BUILD_TAG) pull
 ifeq ($(ARCH), darwin)
 	IMAGE_REPO=$(CORE_IMAGE_REPO) IMAGE_TAG=$(CORE_IMAGE_TAG) docker-compose -p $(CI_BUILD_TAG) --compatibility up -d
 else

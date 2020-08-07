@@ -8,10 +8,10 @@ jobs:
       image: circleci/classic:latest
     steps:
       - checkout
-      - run:
-          name: Build base images
-          command: |
-            make -j4 build
+      # - run:
+      #     name: Build base images
+      #     command: |
+      #       make -j4 build
       - run:
           name: Bring up local Lagoon stack
           command: |
