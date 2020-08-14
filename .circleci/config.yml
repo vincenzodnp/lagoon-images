@@ -25,7 +25,11 @@ jobs:
           name: Show all source images
           command: |
             grep -Rh ^FROM | grep -v { | sort -u
-
+      - run:
+          name: Show image tag cross reference
+          command: |
+            cat build.txt
+            
 workflows:
   version: 2
   commit:
