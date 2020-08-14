@@ -53,6 +53,7 @@ CORE_IMAGE_TAG ?= v1-8-2
 # Local environment
 ARCH := $(shell uname | tr '[:upper:]' '[:lower:]')
 LAGOON_VERSION := $(shell git describe --tags --exact-match 2>/dev/null || echo development)
+LAGOON_TAG := $(shell git describe --tags --exact-match 2>/dev/null)
 DOCKER_DRIVER := $(shell docker info -f '{{.Driver}}')
 
 # Version and Hash of the k8s tools that should be downloaded
@@ -68,6 +69,10 @@ K3D_NAME := k3s-$(shell echo $(CI_BUILD_TAG) | sed -E 's/.*(.{31})$$/\1/')
 BRANCH_NAME :=
 DEFAULT_ALPINE_VERSION := 3.11
 
+
+# Init the file that is used to hold the image tag cross-reference table
+$(file >build.txt)
+
 #######
 ####### Functions
 #######
@@ -75,25 +80,6 @@ DEFAULT_ALPINE_VERSION := 3.11
 # Builds a docker image. Expects as arguments: name of the image, location of Dockerfile, path of
 # Docker Build Context
 docker_build = docker build $(DOCKER_BUILD_PARAMS) --build-arg LAGOON_VERSION=$(LAGOON_VERSION) --build-arg IMAGE_REPO=$(CI_BUILD_TAG) --build-arg ALPINE_VERSION=$(DEFAULT_ALPINE_VERSION) -t $(CI_BUILD_TAG)/$(1) -f $(2) $(3)
-
-# Build a Python docker image. Expects as arguments:
-# 1. Python version
-# 2. Location of Dockerfile
-# 3. Path of Docker Build context
-docker_build_python = docker build $(DOCKER_BUILD_PARAMS) --build-arg LAGOON_VERSION=$(LAGOON_VERSION) --build-arg IMAGE_REPO=$(CI_BUILD_TAG) --build-arg PYTHON_VERSION=$(1) --build-arg ALPINE_VERSION=$(2) -t $(CI_BUILD_TAG)/python:$(3) -f $(4) $(5)
-
-docker_build_elastic = docker build $(DOCKER_BUILD_PARAMS) --build-arg LAGOON_VERSION=$(LAGOON_VERSION) --build-arg IMAGE_REPO=$(CI_BUILD_TAG) -t $(CI_BUILD_TAG)/$(2):$(1) -f $(3) $(4)
-
-# Build a PHP docker image. Expects as arguments:
-# 1. PHP version
-# 2. PHP version and type of image (ie 7.3-fpm, 7.3-cli etc)
-# 3. Location of Dockerfile
-# 4. Path of Docker Build Context
-docker_build_php = docker build $(DOCKER_BUILD_PARAMS) --build-arg LAGOON_VERSION=$(LAGOON_VERSION) --build-arg IMAGE_REPO=$(CI_BUILD_TAG) --build-arg PHP_VERSION=$(1)  --build-arg PHP_IMAGE_VERSION=$(1) --build-arg ALPINE_VERSION=$(2) -t $(CI_BUILD_TAG)/php:$(3) -f $(4) $(5)
-
-docker_build_node = docker build $(DOCKER_BUILD_PARAMS) --build-arg LAGOON_VERSION=$(LAGOON_VERSION) --build-arg IMAGE_REPO=$(CI_BUILD_TAG) --build-arg NODE_VERSION=$(1) --build-arg ALPINE_VERSION=$(2) -t $(CI_BUILD_TAG)/node:$(3) -f $(4) $(5)
-
-docker_build_solr = docker build $(DOCKER_BUILD_PARAMS) --build-arg LAGOON_VERSION=$(LAGOON_VERSION) --build-arg IMAGE_REPO=$(CI_BUILD_TAG) --build-arg SOLR_MAJ_MIN_VERSION=$(1) -t $(CI_BUILD_TAG)/solr:$(2) -f $(3) $(4)
 
 # Tags an image with the `amazeeio` repository and pushes it
 docker_publish_amazeeio = docker tag $(CI_BUILD_TAG)/$(1) amazeeio/$(2) && docker push amazeeio/$(2) | cat
@@ -115,11 +101,6 @@ consumer-images :=     commons \
 							mongo \
 							nginx \
 							nginx-drupal \
-							postgres \
-							postgres-ckan \
-							postgres-drupal \
-							redis \
-							redis-persistent \
 							varnish \
 							varnish-drupal \
 							varnish-persistent \
@@ -140,6 +121,8 @@ $(build-images):
 	$(eval image = $(subst build/,,$@))
 # Call the docker build
 	$(call docker_build,$(image),images/$(image)/Dockerfile,images/$(image))
+# Populate the cross-reference table
+	$(file >>build.txt,$(CI_BUILD_TAG)/$(image) $(CI_BUILD_TAG)/$(image) amazeeio/$(image)$(if $(LAGOON_TAG),:$(LAGOON_TAG)) amazeeiolagoon/$(image)$(if $(BRANCH_NAME),:$(BRANCH_NAME)))
 # Touch an empty file which make itself is using to understand when the image has been last build
 	touch $@
 
@@ -155,11 +138,6 @@ build/mariadb-drupal: build/mariadb images/mariadb-drupal/Dockerfile
 build/mongo: build/commons images/mongo/Dockerfile
 build/nginx: build/commons images/nginx/Dockerfile
 build/nginx-drupal: build/nginx images/nginx-drupal/Dockerfile
-build/postgres: build/commons images/postgres/Dockerfile
-build/postgres-ckan: build/postgres images/postgres-ckan/Dockerfile
-build/postgres-drupal: build/postgres images/postgres-drupal/Dockerfile
-build/redis: build/commons images/redis/Dockerfile
-build/redis-persistent: build/redis images/redis-persistent/Dockerfile
 build/varnish: build/commons images/varnish/Dockerfile
 build/varnish-drupal: build/varnish images/varnish-drupal/Dockerfile
 build/varnish-persistent: build/varnish images/varnish/Dockerfile
@@ -170,188 +148,102 @@ build/toolbox: build/commons build/mariadb images/toolbox/Dockerfile
 build/kubectl-build-deploy-dind: build/kubectl images/kubectl-build-deploy-dind
 
 #######
-####### Elastic Images
+####### Multi-version Images
 #######
 
-elasticimages :=  elasticsearch__6 \
-								  elasticsearch__7 \
-									kibana__6 \
-									kibana__7 \
-									logstash__6 \
-									logstash__7
+multiimages := 	php-7.2-fpm \
+				php-7.3-fpm \
+				php-7.4-fpm \
+				php-7.2-cli \
+				php-7.3-cli \
+				php-7.4-cli \
+				php-7.2-cli-drupal \
+				php-7.3-cli-drupal \
+				php-7.4-cli-drupal \
+				python-2.7 \
+				python-3.7 \
+				python-3.8 \
+				python-3.9.0rc1 \
+				python-2.7-ckan \
+				python-2.7-ckandatapusher \
+				node-10 \
+				node-12 \
+				node-14 \
+				node-10-builder \
+				node-12-builder \
+				node-14-builder \
+				solr-5.5 \
+				solr-6.6 \
+				solr-7.7 \
+				solr-5.5-drupal \
+				solr-6.6-drupal \
+				solr-7.7-drupal \
+				solr-5.5-ckan \
+				solr-6.6-ckan \
+				elasticsearch-6 \
+				elasticsearch-7 \
+				kibana-6 \
+				kibana-7 \
+				logstash-6 \
+				logstash-7 \
+				postgres-11 \
+				postgres-12 \
+				postgres-11-ckan \
+				postgres-11-drupal \
+				redis-5 \
+				redis-6 \
+				redis-5-persistent \
+				redis-6-persistent
 
-build-elasticimages = $(foreach image,$(elasticimages),build/$(image))
+build-multiimages = $(foreach image,$(multiimages),build/$(image))
 
-# Define the make recipe for all base images
-$(build-elasticimages): build/commons
-	$(eval clean = $(subst build/,,$@))
-	$(eval tool = $(word 1,$(subst __, ,$(clean))))
-	$(eval version = $(word 2,$(subst __, ,$(clean))))
-# Call the docker build
-	$(call docker_build_elastic,$(version),$(tool),images/$(tool)/Dockerfile$(version),images/$(tool))
-# Touch an empty file which make itself is using to understand when the image has been last build
+# Define the make recipe for all multi images
+$(build-multiimages):
+	$(eval image = $(subst build/,,$@))
+	$(eval variant = $(word 1,$(subst -, ,$(image))))
+	$(eval version = $(word 2,$(subst -, ,$(image))))
+	$(eval type = $(word 3,$(subst -, ,$(image))))
+	$(eval subtype = $(word 4,$(subst -, ,$(image))))
+# Construct the folder and legacy tag to use - note that if treats undefined vars as 'false' to avoid extra '-/'
+	$(eval folder = $(shell echo $(variant)$(if $(type),/$(type))$(if $(subtype),/$(subtype))))
+	$(eval legacytag = $(shell echo $(variant)$(if $(version),:$(version))$(if $(type),-$(type))$(if $(subtype),-$(subtype))))
+# Call the generic docker build process
+	$(call docker_build,$(image),images/$(folder)/$(if $(version),$(version).)Dockerfile,images/$(folder))
+# Populate the cross-reference table
+	$(file >>build.txt,$(CI_BUILD_TAG)/$(image) $(CI_BUILD_TAG)/$(legacytag) amazeeio/$(legacytag)$(if $(LAGOON_TAG),-$(LAGOON_TAG)) amazeeiolagoon/$(legacytag)$(if $(BRANCH_NAME),-$(BRANCH_NAME)))
+# Touch an empty file which make itself is using to understand when the image has been last built
 	touch $@
 
-base-images-with-versions += $(elasticimages)
-s3-images += $(elasticimages)
+base-images-with-versions += $(multiimages)
+s3-images += $(multiimages)
 
-build/elasticsearch__6 build/elasticsearch__7 build/kibana__6 build/kibana__7 build/logstash__6 build/logstash__7: images/commons
-
-#######
-####### Python Images
-#######
-####### Python Images are alpine linux based Python images.
-
-pythonimages :=  python__2.7 \
-								 python__3.7 \
-								 python__2.7-ckan \
-								 python__2.7-ckandatapusher
-
-build-pythonimages = $(foreach image,$(pythonimages),build/$(image))
-
-# Define the make recipe for all base images
-$(build-pythonimages): build/commons
-	$(eval clean = $(subst build/python__,,$@))
-	$(eval version = $(word 1,$(subst -, ,$(clean))))
-	$(eval type = $(word 2,$(subst -, ,$(clean))))
-	$(eval alpine_version := $(shell case $(version) in (2.7|3.7) echo "3.10" ;; (*) echo $(DEFAULT_ALPINE_VERSION) ;; esac ))
-# this fills variables only if $type is existing, if not they are just empty
-	$(eval type_dash = $(if $(type),-$(type)))
-# Call the docker build
-	$(call docker_build_python,$(version),$(alpine_version),$(version)$(type_dash),images/python$(type_dash)/Dockerfile,images/python$(type_dash))
-# Touch an empty file which make itself is using to understand when the image has been last build
-	touch $@
-
-base-images-with-versions += $(pythonimages)
-s3-images += $(pythonimages)
-
-build/python__2.7 build/python__3.7: images/commons
-build/python__2.7-ckan: build/python__2.7
-build/python__2.7-ckandatapusher: build/python__2.7
-
-
-#######
-####### PHP Images
-#######
-####### PHP Images are alpine linux based PHP images.
-
-phpimages := 	php__7.2-fpm \
-				php__7.3-fpm \
-				php__7.4-fpm \
-				php__7.2-cli \
-				php__7.3-cli \
-				php__7.4-cli \
-				php__7.2-cli-drupal \
-				php__7.3-cli-drupal \
-				php__7.4-cli-drupal
-
-
-build-phpimages = $(foreach image,$(phpimages),build/$(image))
-
-# Define the make recipe for all base images
-$(build-phpimages): build/commons
-	$(eval clean = $(subst build/php__,,$@))
-	$(eval version = $(word 1,$(subst -, ,$(clean))))
-	$(eval type = $(word 2,$(subst -, ,$(clean))))
-	$(eval subtype = $(word 3,$(subst -, ,$(clean))))
-	$(eval alpine_version := $(shell case $(version) in (5.6) echo "3.8" ;; (7.0) echo "3.7" ;; (7.1) echo "3.10" ;; (*) echo $(DEFAULT_ALPINE_VERSION) ;; esac ))
-# this fills variables only if $type is existing, if not they are just empty
-	$(eval type_dash = $(if $(type),-$(type)))
-	$(eval type_slash = $(if $(type),/$(type)))
-# if there is a subtype, add it. If not, just keep what we already had
-	$(eval type_dash = $(if $(subtype),-$(type)-$(subtype),$(type_dash)))
-	$(eval type_slash = $(if $(subtype),/$(type)-$(subtype),$(type_slash)))
-
-# Call the docker build
-	$(call docker_build_php,$(version),$(alpine_version),$(version)$(type_dash),images/php$(type_slash)/Dockerfile,images/php$(type_slash))
-# Touch an empty file which make itself is using to understand when the image has been last build
-	touch $@
-
-base-images-with-versions += $(phpimages)
-s3-images += $(phpimages)
-
-build/php__7.2-fpm build/php__7.3-fpm build/php__7.4-fpm: images/commons
-build/php__7.2-cli: build/php__7.2-fpm
-build/php__7.3-cli: build/php__7.3-fpm
-build/php__7.4-cli: build/php__7.4-fpm
-build/php__7.2-cli-drupal: build/php__7.2-cli
-build/php__7.3-cli-drupal: build/php__7.3-cli
-build/php__7.4-cli-drupal: build/php__7.4-cli
-
-#######
-####### Solr Images
-#######
-####### Solr Images are alpine linux based Solr images.
-
-solrimages := 	solr__5.5 \
-				solr__6.6 \
-				solr__7.7 \
-				solr__5.5-drupal \
-				solr__6.6-drupal \
-				solr__7.7-drupal \
-				solr__5.5-ckan \
-				solr__6.6-ckan
-
-
-build-solrimages = $(foreach image,$(solrimages),build/$(image))
-
-# Define the make recipe for all base images
-$(build-solrimages): build/commons
-	$(eval clean = $(subst build/solr__,,$@))
-	$(eval version = $(word 1,$(subst -, ,$(clean))))
-	$(eval type = $(word 2,$(subst -, ,$(clean))))
-# this fills variables only if $type is existing, if not they are just empty
-	$(eval type_dash = $(if $(type),-$(type)))
-# Call the docker build
-	$(call docker_build_solr,$(version),$(version)$(type_dash),images/solr$(type_dash)/Dockerfile,images/solr$(type_dash))
-# Touch an empty file which make itself is using to understand when the image has been last build
-	touch $@
-
-base-images-with-versions += $(solrimages)
-s3-images += $(solrimages)
-
-build/solr__5.5  build/solr__6.6 build/solr__7.7: images/commons
-build/solr__5.5-drupal: build/solr__5.5
-build/solr__6.6-drupal: build/solr__6.6
-build/solr__7.7-drupal: build/solr__7.7
-build/solr__5.5-ckan: build/solr__5.5
-build/solr__6.6-ckan: build/solr__6.6
-
-#######
-####### Node Images
-#######
-####### Node Images are alpine linux based Node images.
-
-nodeimages := 	node__14 \
-				node__12 \
-				node__10 \
-				node__14-builder \
-				node__12-builder \
-				node__10-builder \
-
-build-nodeimages = $(foreach image,$(nodeimages),build/$(image))
-
-# Define the make recipe for all base images
-$(build-nodeimages): build/commons
-	$(eval clean = $(subst build/node__,,$@))
-	$(eval version = $(word 1,$(subst -, ,$(clean))))
-	$(eval type = $(word 2,$(subst -, ,$(clean))))
-	$(eval alpine_version := $(shell case $(version) in (6) echo "" ;; (9) echo "" ;; (*) echo $(DEFAULT_ALPINE_VERSION) ;; esac ))
-# this fills variables only if $type is existing, if not they are just empty
-	$(eval type_dash = $(if $(type),-$(type)))
-	$(eval type_slash = $(if $(type),/$(type)))
-# Call the docker build
-	$(call docker_build_node,$(version),$(alpine_version),$(version)$(type_dash),images/node$(type_slash)/Dockerfile,images/node$(type_slash))
-# Touch an empty file which make itself is using to understand when the image has been last build
-	touch $@
-
-base-images-with-versions += $(nodeimages)
-s3-images += $(nodeimages)
-
-build/node__10 build/node__12 build/node__14: images/commons images/node/Dockerfile
-build/node__14-builder: build/node__14 images/node/builder/Dockerfile
-build/node__12-builder: build/node__12 images/node/builder/Dockerfile
-build/node__10-builder: build/node__10 images/node/builder/Dockerfile
+build/php-7.2-fpm build/php-7.3-fpm build/php-7.4-fpm: build/commons
+build/php-7.2-cli: build/php-7.2-fpm
+build/php-7.3-cli: build/php-7.3-fpm
+build/php-7.4-cli: build/php-7.4-fpm
+build/php-7.2-cli-drupal: build/php-7.2-cli
+build/php-7.3-cli-drupal: build/php-7.3-cli
+build/php-7.4-cli-drupal: build/php-7.4-cli
+build/python-2.7 build/python-3.7 build/python-3.8 build/python-3.9.0rc1: build/commons
+build/python-2.7-ckan: build/python-2.7
+build/python-2.7-ckandatapusher: build/python-2.7
+build/node-10 build/node-12 build/node-14: build/commons
+build/node-10-builder: build/node-10
+build/node-12-builder: build/node-12
+build/node-14-builder: build/node-14
+build/solr-5.5  build/solr-6.6 build/solr-7.7: build/commons
+build/solr-5.5-drupal: build/solr-5.5
+build/solr-6.6-drupal: build/solr-6.6
+build/solr-7.7-drupal: build/solr-7.7
+build/solr-5.5-ckan: build/solr-5.5
+build/solr-6.6-ckan: build/solr-6.6
+build/elasticsearch-6 build/elasticsearch-7 build/kibana-6 build/kibana-7 build/logstash-6 build/logstash-7: build/commons
+build/postgres-11 build/postgres-12: build/commons
+build/postgres-11-ckan build/postgres-11-drupal: build/postgres-11
+build/redis-5 build/redis-6: build/commons
+build/redis-5-persistent: build/redis-5
+build/redis-5 build/redis-6: build/commons
+build/redis-6-persistent: build/redis-6
 
 # Images for local helpers that exist in another folder than the service images
 localdevimages := local-git \
@@ -363,13 +255,13 @@ build-localdevimages = $(foreach image,$(localdevimages),build/$(image))
 $(build-localdevimages):
 	$(eval folder = $(subst build/local-,,$@))
 	$(eval image = $(subst build/,,$@))
-	$(call docker_build,$(image),local-dev/$(folder)/Dockerfile,local-dev/$(folder))
+	$(call docker_build,$(image),$(image),local-dev/$(folder)/Dockerfile,local-dev/$(folder))
 	touch $@
 
 # Image with ansible test
 build/tests:
 	$(eval image = $(subst build/,,$@))
-	$(call docker_build,$(image),$(image)/Dockerfile,$(image))
+	$(call docker_build,$(image),$(image),$(image)/Dockerfile,$(image))
 	touch $@
 
 #######
@@ -380,10 +272,11 @@ build/tests:
 # Builds all Images
 .PHONY: build
 build: $(foreach image,$(base-images) $(base-images-with-versions) ,build/$(image))
+
 # Outputs a list of all Images we manage
 .PHONY: build-list
 build-list:
-	@for number in $(foreach image,$(build-images),build/$(image)); do \
+	@for number in $(foreach image,$(base-images) $(base-images-with-versions),build/$(image)); do \
 			echo $$number ; \
 	done
 
@@ -399,7 +292,7 @@ all-k8s-tests = $(foreach image,$(all-k8s-tests-list),k8s-tests/$(image))
 k8s-tests: $(all-k8s-tests)
 
 .PHONY: $(all-k8s-tests)
-$(all-k8s-tests): k3d up
+$(all-k8s-tests): k3d pull up
 		$(MAKE) push-local-registry -j6
 		$(eval testname = $(subst k8s-tests/,,$@))
 		IMAGE_REPO=$(CORE_IMAGE_REPO) IMAGE_TAG=$(CORE_IMAGE_TAG) docker-compose -p $(CI_BUILD_TAG) --compatibility run --rm \

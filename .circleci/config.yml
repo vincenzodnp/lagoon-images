@@ -16,31 +16,15 @@ jobs:
       - run:
           name: Build base images
           command: |
-            make -j6 build
-            docker image ls
+            make -j10 build
       - run:
-          name: Pull core images
+          name: Show all built images
           command: |
-            make pull
-            docker image ls
+            docker image ls | sort
       - run:
-          name: Bring up local Lagoon stack
+          name: Show all source images
           command: |
-            make up
-            docker-compose -p lagoon ps -a
-      - run:
-          name: Bring up local k3d stack
-          command: |
-            make k3d
-      - run:
-          name: Run local k8s tests
-          command: |
-            make k8s-tests
-      - run:
-          name: Clean up after ourselves
-          command: |
-            make down
-            make k3d/clean
+            grep -Rh ^FROM | grep -v { | sort -u
 
 workflows:
   version: 2
