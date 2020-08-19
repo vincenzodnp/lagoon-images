@@ -29,7 +29,19 @@ jobs:
           name: Show image tag cross reference
           command: |
             cat build.txt
-            
+      - run:
+          name: Show scan results
+          command: |
+            cat scan.txt
+      - run:
+          name: Create legacy amazeeio/ images
+          command: |
+            make tag-images
+      - run:
+          name: Show all built images
+          command: |
+            docker image ls | sort
+
 workflows:
   version: 2
   commit:

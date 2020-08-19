@@ -47,8 +47,6 @@ DOCKER_BUILD_PARAMS := --quiet
 CI_BUILD_TAG ?= lagoon
 BASE_IMAGE_REPO ?= lagoon
 BASE_IMAGE_TAG ?= master
-CORE_IMAGE_REPO ?= amazeeiolagoon
-CORE_IMAGE_TAG ?= v1-8-2
 
 # Local environment
 ARCH := $(shell uname | tr '[:upper:]' '[:lower:]')
@@ -71,7 +69,8 @@ DEFAULT_ALPINE_VERSION := 3.11
 
 
 # Init the file that is used to hold the image tag cross-reference table
-$(file >build.txt)
+$(shell >build.txt)
+$(shell >scan.txt)
 
 #######
 ####### Functions
@@ -80,6 +79,8 @@ $(file >build.txt)
 # Builds a docker image. Expects as arguments: name of the image, location of Dockerfile, path of
 # Docker Build Context
 docker_build = docker build $(DOCKER_BUILD_PARAMS) --build-arg LAGOON_VERSION=$(LAGOON_VERSION) --build-arg IMAGE_REPO=$(CI_BUILD_TAG) --build-arg ALPINE_VERSION=$(DEFAULT_ALPINE_VERSION) -t $(CI_BUILD_TAG)/$(1) -f $(2) $(3)
+
+scan_image = trivy image $(CI_BUILD_TAG)/$(1) >> scan.txt
 
 # Tags an image with the `amazeeio` repository and pushes it
 docker_publish_amazeeio = docker tag $(CI_BUILD_TAG)/$(1) amazeeio/$(2) && docker push amazeeio/$(2) | cat
@@ -91,9 +92,6 @@ docker_publish_amazeeiolagoon = docker tag $(CI_BUILD_TAG)/$(1) amazeeiolagoon/$
 ####### Base Images
 #######
 ####### Base Images are the base for all other images and are also published for clients to use during local development
-
-deploy-images := kubectl-build-deploy-dind \
-							docker-host
 
 consumer-images :=     commons \
 							mariadb \
@@ -122,7 +120,10 @@ $(build-images):
 # Call the docker build
 	$(call docker_build,$(image),images/$(image)/Dockerfile,images/$(image))
 # Populate the cross-reference table
-	$(file >>build.txt,$(CI_BUILD_TAG)/$(image) $(CI_BUILD_TAG)/$(image) amazeeio/$(image)$(if $(LAGOON_TAG),:$(LAGOON_TAG)) amazeeiolagoon/$(image)$(if $(BRANCH_NAME),:$(BRANCH_NAME)))
+	$(shell echo $(image),$(image) >> build.txt)
+#scan created image with Trivy
+	$(call scan_image,$(image),)
+
 # Touch an empty file which make itself is using to understand when the image has been last build
 	touch $@
 
@@ -141,7 +142,7 @@ build/nginx-drupal: build/nginx images/nginx-drupal/Dockerfile
 build/varnish: build/commons images/varnish/Dockerfile
 build/varnish-drupal: build/varnish images/varnish-drupal/Dockerfile
 build/varnish-persistent: build/varnish images/varnish/Dockerfile
-build/varnish-persistent-drupal: build/varnish-persistent images/varnish-drupal/Dockerfile
+build/varnish-persistent-drupal: build/varnish-drupal images/varnish-drupal/Dockerfile
 build/docker-host: build/commons images/docker-host/Dockerfile
 build/athenapdf-service: build/commons images/athenapdf-service/Dockerfile
 build/toolbox: build/commons build/mariadb images/toolbox/Dockerfile
@@ -186,16 +187,17 @@ multiimages := 	php-7.2-fpm \
 				kibana-7 \
 				logstash-6 \
 				logstash-7 \
-				postgres-11 \
 				postgres-12 \
+				redis-6 \
+				redis-6-persistent
+
+verimages := 	postgres-11 \
 				postgres-11-ckan \
 				postgres-11-drupal \
 				redis-5 \
-				redis-6 \
-				redis-5-persistent \
-				redis-6-persistent
+				redis-5-persistent
 
-build-multiimages = $(foreach image,$(multiimages),build/$(image))
+build-multiimages = $(foreach image,$(multiimages) $(verimages),build/$(image))
 
 # Define the make recipe for all multi images
 $(build-multiimages):
@@ -210,11 +212,14 @@ $(build-multiimages):
 # Call the generic docker build process
 	$(call docker_build,$(image),images/$(folder)/$(if $(version),$(version).)Dockerfile,images/$(folder))
 # Populate the cross-reference table
-	$(file >>build.txt,$(CI_BUILD_TAG)/$(image) $(CI_BUILD_TAG)/$(legacytag) amazeeio/$(legacytag)$(if $(LAGOON_TAG),-$(LAGOON_TAG)) amazeeiolagoon/$(legacytag)$(if $(BRANCH_NAME),-$(BRANCH_NAME)))
+	$(shell echo $(image),$(legacytag) >> build.txt)
+#scan created images with Trivy
+	$(call scan_image,$(image),)
 # Touch an empty file which make itself is using to understand when the image has been last built
 	touch $@
 
 base-images-with-versions += $(multiimages)
+base-images-with-versions += $(verimages)
 s3-images += $(multiimages)
 
 build/php-7.2-fpm build/php-7.3-fpm build/php-7.4-fpm: build/commons
@@ -245,25 +250,6 @@ build/redis-5-persistent: build/redis-5
 build/redis-5 build/redis-6: build/commons
 build/redis-6-persistent: build/redis-6
 
-# Images for local helpers that exist in another folder than the service images
-localdevimages := local-git \
-									local-api-data-watcher-pusher \
-									local-registry\
-									local-dbaas-provider
-build-localdevimages = $(foreach image,$(localdevimages),build/$(image))
-
-$(build-localdevimages):
-	$(eval folder = $(subst build/local-,,$@))
-	$(eval image = $(subst build/,,$@))
-	$(call docker_build,$(image),$(image),local-dev/$(folder)/Dockerfile,local-dev/$(folder))
-	touch $@
-
-# Image with ansible test
-build/tests:
-	$(eval image = $(subst build/,,$@))
-	$(call docker_build,$(image),$(image),$(image)/Dockerfile,$(image))
-	touch $@
-
 #######
 ####### Commands
 #######
@@ -280,60 +266,44 @@ build-list:
 			echo $$number ; \
 	done
 
-# Define list of all tests
-all-k8s-tests-list:= features-kubernetes \
-									nginx \
-									drupal \
-									active-standby-kubernetes
-all-k8s-tests = $(foreach image,$(all-k8s-tests-list),k8s-tests/$(image))
+tag-consumer-images = $(foreach image,$(consumer-images),[tag]-$(image))
+tag-multiimages = $(foreach image,$(multiimages),[tag]-$(image))
+tag-verimages = $(foreach image,$(verimages),[tag]-$(image))
 
-# Run all k8s tests
-.PHONY: k8s-tests
-k8s-tests: $(all-k8s-tests)
+.PHONY: tag-images
+tag-images: $(tag-multiimages) $(tag-consumer-images) $(tag-verimages)
 
-.PHONY: $(all-k8s-tests)
-$(all-k8s-tests): k3d pull up
-		$(MAKE) push-local-registry -j6
-		$(eval testname = $(subst k8s-tests/,,$@))
-		IMAGE_REPO=$(CORE_IMAGE_REPO) IMAGE_TAG=$(CORE_IMAGE_TAG) docker-compose -p $(CI_BUILD_TAG) --compatibility run --rm \
-			tests-kubernetes ansible-playbook --skip-tags="skip-on-kubernetes" \
-			/ansible/tests/$(testname).yaml \
-			--extra-vars \
-			"$$(cat $$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)') | \
-				jq -rcsR '{kubeconfig: .}')"
-
-# push command of our base images
-push-local-registry-images = $(foreach image,$(base-images) $(base-images-with-versions),[push-local-registry]-$(image))
-# tag and push all images
-.PHONY: push-local-registry
-push-local-registry: $(push-local-registry-images)
-# tag and push of each image
 .PHONY:
-	docker login -u admin -p admin 172.17.0.1:8084
-	$(push-local-registry-images)
+$(tag-multiimages):
+	$(eval image = $(subst [tag]-,,$@))
+	$(eval variant = $(word 1,$(subst -, ,$(image))))
+	$(eval version = $(word 2,$(subst -, ,$(image))))
+	$(eval type = $(word 3,$(subst -, ,$(image))))
+	$(eval subtype = $(word 4,$(subst -, ,$(image))))
+	
+	$(eval legacytag = $(shell echo $(variant)$(if $(version),:$(version))$(if $(type),-$(type))$(if $(subtype),-$(subtype))))
 
-$(push-local-registry-images):
-	$(eval image = $(subst [push-local-registry]-,,$@))
-	$(eval image = $(subst __,:,$(image)))
-	$(info pushing $(image) to local local-registry)
-	if docker inspect $(BASE_IMAGE_REPO)/$(image) > /dev/null 2>&1; then \
-		docker tag $(BASE_IMAGE_REPO)/$(image) localhost:5000/lagoon/$(image) && \
-		docker push localhost:5000/lagoon/$(image) | cat; \
-	fi
+	$(info tagging lagoon/$(image):latest as legacy tag lagoon/$(legacytag))
+	docker tag lagoon/$(image):latest amazeeio/$(legacytag)
 
-# Run all tests
-.PHONY: tests
-tests: k8s-tests
+.PHONY:
+$(tag-consumer-images):
+	$(eval image = $(subst [tag]-,,$@))
+	$(info tagging lagoon/$(image):latest)
+	docker tag lagoon/$(image):latest amazeeio/$(image):latest
 
-# Wait for Keycloak to be ready (before this no API calls will work)
-.PHONY: wait-for-keycloak
-wait-for-keycloak:
-	$(info Waiting for Keycloak to be ready....)
-	grep -m 1 "Config of Keycloak done." <(docker-compose -p $(CI_BUILD_TAG) --compatibility logs -f keycloak 2>&1)
+.PHONY:
+ $(tag-verimages):
+	$(eval image = $(subst [tag]-,,$@))
+	$(eval variant = $(word 1,$(subst -, ,$(image))))
+	$(eval version = $(word 2,$(subst -, ,$(image))))
+	$(eval type = $(word 3,$(subst -, ,$(image))))
+	$(eval subtype = $(word 4,$(subst -, ,$(image))))
+	
+	$(eval legacytag = $(shell echo $(variant)$(if $(type),-$(type))$(if $(subtype),-$(subtype))))
 
-.PHONY: local-registry-up
-local-registry-up: build/local-registry
-	IMAGE_REPO=$(CORE_IMAGE_REPO) IMAGE_TAG=$(CORE_IMAGE_TAG) docker-compose -p $(CI_BUILD_TAG) --compatibility up -d local-registry
+	$(info tagging lagoon/$(image):latest as legacy tag lagoon/$(legacytag))
+	docker tag lagoon/$(image):latest amazeeio/$(legacytag)
 
 # Publish command to amazeeio docker hub, this should probably only be done during a master deployments
 publish-amazeeio-baseimages = $(foreach image,$(base-images),[publish-amazeeio-baseimages]-$(image))
@@ -426,204 +396,3 @@ $(s3-load):
 # still active, so this is a very safe command)
 clean:
 	rm -rf build/*
-
-# Show Lagoon Service Logs
-logs:
-	IMAGE_REPO=$(CI_BUILD_TAG) docker-compose -p $(CI_BUILD_TAG) --compatibility logs --tail=10 -f $(service)
-
-# Pre-pull all images for docker-compose
-pull:
-	IMAGE_REPO=$(CORE_IMAGE_REPO) IMAGE_TAG=$(CORE_IMAGE_TAG) docker-compose -p $(CI_BUILD_TAG) pull --include-deps --quiet
-
-# Start all Lagoon Services
-up:
-ifeq ($(ARCH), darwin)
-	IMAGE_REPO=$(CORE_IMAGE_REPO) IMAGE_TAG=$(CORE_IMAGE_TAG) docker-compose -p $(CI_BUILD_TAG) --compatibility up -d
-else
-	# once this docker issue is fixed we may be able to do away with this
-	# linux-specific workaround: https://github.com/docker/cli/issues/2290
-	KEYCLOAK_URL=$$(docker network inspect -f '{{(index .IPAM.Config 0).Gateway}}' bridge):8088 \
-		IMAGE_REPO=$(CORE_IMAGE_REPO) IMAGE_TAG=$(CORE_IMAGE_TAG) \
-		docker-compose -p $(CI_BUILD_TAG) --compatibility up -d
-endif
-	grep -m 1 ".opendistro_security index does not exist yet" <(docker-compose -p $(CI_BUILD_TAG) logs -f logs-db 2>&1)
-	while ! docker exec "$$(docker-compose -p $(CI_BUILD_TAG) ps -q logs-db)" ./securityadmin_demo.sh; do sleep 5; done
-	$(MAKE) wait-for-keycloak
-
-down:
-	IMAGE_REPO=$(CORE_IMAGE_REPO) IMAGE_TAG=$(CORE_IMAGE_TAG) docker-compose -p $(CI_BUILD_TAG) --compatibility down -v --remove-orphans
-
-# kill all containers containing the name "lagoon"
-kill:
-	docker ps --format "{{.Names}}" | grep lagoon | xargs -t -r -n1 docker rm -f -v
-
-# Symlink the installed k3d client if the correct version is already
-# installed, otherwise downloads it.
-local-dev/k3d:
-ifeq ($(K3D_VERSION), $(shell k3d version 2>/dev/null | grep k3d | sed -E 's/^k3d version v([0-9.]+).*/\1/'))
-	$(info linking local k3d version $(K3D_VERSION))
-	ln -s $(shell command -v k3d) ./local-dev/k3d
-else
-	$(info downloading k3d version $(K3D_VERSION) for $(ARCH))
-	curl -Lo local-dev/k3d https://github.com/rancher/k3d/releases/download/v$(K3D_VERSION)/k3d-$(ARCH)-amd64
-	chmod a+x local-dev/k3d
-endif
-
-# Symlink the installed kubectl client if the correct version is already
-# installed, otherwise downloads it.
-local-dev/kubectl:
-ifeq ($(KUBECTL_VERSION), $(shell kubectl version --short --client 2>/dev/null | sed -E 's/Client Version: v([0-9.]+).*/\1/'))
-	$(info linking local kubectl version $(KUBECTL_VERSION))
-	ln -s $(shell command -v kubectl) ./local-dev/kubectl
-else
-	$(info downloading kubectl version $(KUBECTL_VERSION) for $(ARCH))
-	curl -Lo local-dev/kubectl https://storage.googleapis.com/kubernetes-release/release/$(KUBECTL_VERSION)/bin/$(ARCH)/amd64/kubectl
-	chmod a+x local-dev/kubectl
-endif
-
-# Symlink the installed helm client if the correct version is already
-# installed, otherwise downloads it.
-local-dev/helm/helm:
-	@mkdir -p ./local-dev/helm
-ifeq ($(HELM_VERSION), $(shell helm version --short --client 2>/dev/null | sed -E 's/v([0-9.]+).*/\1/'))
-	$(info linking local helm version $(HELM_VERSION))
-	ln -s $(shell command -v helm) ./local-dev/helm
-else
-	$(info downloading helm version $(HELM_VERSION) for $(ARCH))
-	curl -L https://get.helm.sh/helm-$(HELM_VERSION)-$(ARCH)-amd64.tar.gz | tar xzC local-dev/helm --strip-components=1
-	chmod a+x local-dev/helm/helm
-endif
-
-ifeq ($(DOCKER_DRIVER), btrfs)
-# https://github.com/rancher/k3d/blob/master/docs/faq.md
-K3D_BTRFS_VOLUME := --volume /dev/mapper:/dev/mapper
-else
-K3D_BTRFS_VOLUME :=
-endif
-
-k3d: local-dev/k3d local-dev/kubectl local-dev/helm/helm
-	$(MAKE) local-registry-up
-	$(info starting k3d with name $(K3D_NAME))
-	$(info Creating Loopback Interface for docker gateway if it does not exist, this might ask for sudo)
-ifeq ($(ARCH), darwin)
-	if ! ifconfig lo0 | grep $$(docker network inspect bridge --format='{{(index .IPAM.Config 0).Gateway}}') -q; then sudo ifconfig lo0 alias $$(docker network inspect bridge --format='{{(index .IPAM.Config 0).Gateway}}'); fi
-endif
-	./local-dev/k3d create --wait 0 --publish 18080:80 \
-		--publish 18443:443 \
-		--api-port 16643 \
-		--name $(K3D_NAME) \
-		--image docker.io/rancher/k3s:$(K3S_VERSION) \
-		--volume $$PWD/local-dev/k3d-registries.yaml:/etc/rancher/k3s/registries.yaml \
-		$(K3D_BTRFS_VOLUME) \
-		-x --no-deploy=traefik \
-		--volume $$PWD/local-dev/k3d-nginx-ingress.yaml:/var/lib/rancher/k3s/server/manifests/k3d-nginx-ingress.yaml
-	echo "$(K3D_NAME)" > $@
-	export KUBECONFIG="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')"; \
-	local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" apply -f $$PWD/local-dev/k3d-storageclass-bulk.yaml; \
-	$(MAKE) push-docker-host
-	local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' create namespace k8up; \
-	local-dev/helm/helm --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --kube-context='$(K3D_NAME)' repo add appuio https://charts.appuio.ch; \
-	local-dev/helm/helm --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --kube-context='$(K3D_NAME)' upgrade --install -n k8up k8up appuio/k8up; \
-	local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' create namespace dioscuri; \
-	local-dev/helm/helm --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --kube-context='$(K3D_NAME)' repo add dioscuri https://raw.githubusercontent.com/amazeeio/dioscuri/ingress/charts ; \
-	local-dev/helm/helm --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --kube-context='$(K3D_NAME)' upgrade --install -n dioscuri dioscuri dioscuri/dioscuri ; \
-	local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' create namespace dbaas-operator; \
-	local-dev/helm/helm --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --kube-context='$(K3D_NAME)' repo add dbaas-operator https://raw.githubusercontent.com/amazeeio/dbaas-operator/master/charts ; \
-	local-dev/helm/helm --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --kube-context='$(K3D_NAME)' upgrade --install -n dbaas-operator dbaas-operator dbaas-operator/dbaas-operator ; \
-	local-dev/helm/helm --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --kube-context='$(K3D_NAME)' upgrade --install -n dbaas-operator mariadbprovider dbaas-operator/mariadbprovider -f local-dev/helm-values-mariadbprovider.yml ; \
-	local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' create namespace lagoon; \
-	local-dev/helm/helm --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --kube-context='$(K3D_NAME)' repo add amazeeio https://amazeeio.github.io/charts/; \
-	local-dev/helm/helm --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --kube-context='$(K3D_NAME)' upgrade --install -n lagoon lagoon-remote amazeeio/lagoon-remote --set dockerHost.image.name=172.17.0.1:5000/lagoon/docker-host --set dockerHost.registry=172.17.0.1:5000; \
-	local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' -n lagoon rollout status deployment docker-host -w;
-ifeq ($(ARCH), darwin)
-	export KUBECONFIG="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')"; \
-	KUBERNETESBUILDDEPLOY_TOKEN=$$(local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' -n lagoon describe secret $$(local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' -n lagoon get secret | grep kubernetesbuilddeploy | awk '{print $$1}') | grep token: | awk '{print $$2}'); \
-	sed -i '' -e "s/\".*\" # make-kubernetes-token/\"$${KUBERNETESBUILDDEPLOY_TOKEN}\" # make-kubernetes-token/g" local-dev/api-data/03-populate-api-data-kubernetes.gql; \
-	DOCKER_IP="$$(docker network inspect bridge --format='{{(index .IPAM.Config 0).Gateway}}')"; \
-	sed -i '' -e "s/172\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}/$${DOCKER_IP}/g" local-dev/api-data/03-populate-api-data-kubernetes.gql docker-compose.yaml;
-else
-	export KUBECONFIG="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')"; \
-	KUBERNETESBUILDDEPLOY_TOKEN=$$(local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' -n lagoon describe secret $$(local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' -n lagoon get secret | grep kubernetesbuilddeploy | awk '{print $$1}') | grep token: | awk '{print $$2}'); \
-	sed -i "s/\".*\" # make-kubernetes-token/\"$${KUBERNETESBUILDDEPLOY_TOKEN}\" # make-kubernetes-token/g" local-dev/api-data/03-populate-api-data-kubernetes.gql; \
-	DOCKER_IP="$$(docker network inspect bridge --format='{{(index .IPAM.Config 0).Gateway}}')"; \
-	sed -i "s/172\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}/$${DOCKER_IP}/g" local-dev/api-data/03-populate-api-data-kubernetes.gql docker-compose.yaml;
-endif
-	$(MAKE) push-kubectl-build-deploy-dind
-
-.PHONY: push-docker-host
-push-docker-host:
-	docker pull $(CORE_IMAGE_REPO)/docker-host:${CORE_IMAGE_TAG}
-	docker tag $(CORE_IMAGE_REPO)/docker-host:${CORE_IMAGE_TAG} localhost:5000/lagoon/docker-host
-	docker push localhost:5000/lagoon/docker-host
-
-.PHONY: push-kubectl-build-deploy-dind
-push-kubectl-build-deploy-dind:
-	docker pull $(CORE_IMAGE_REPO)/kubectl-build-deploy-dind:${CORE_IMAGE_TAG}
-	docker tag $(CORE_IMAGE_REPO)/kubectl-build-deploy-dind:${CORE_IMAGE_TAG} localhost:5000/lagoon/kubectl-build-deploy-dind
-	docker push localhost:5000/lagoon/kubectl-build-deploy-dind
-
-.PHONY: rebuild-push-kubectl-build-deploy-dind
-rebuild-push-kubectl-build-deploy-dind:
-	rm -rf build/kubectl-build-deploy-dind
-	$(MAKE) push-kubectl-build-deploy-dind
-
-k3d-kubeconfig:
-	export KUBECONFIG="$$(./local-dev/k3d get-kubeconfig --name=$$(cat k3d))"
-
-k3d-dashboard:
-	export KUBECONFIG="$$(./local-dev/k3d get-kubeconfig --name=$$(cat k3d))"; \
-	local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-rc2/aio/deploy/recommended/00_dashboard-namespace.yaml; \
-	local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-rc2/aio/deploy/recommended/01_dashboard-serviceaccount.yaml; \
-	local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-rc2/aio/deploy/recommended/02_dashboard-service.yaml; \
-	local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-rc2/aio/deploy/recommended/03_dashboard-secret.yaml; \
-	local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-rc2/aio/deploy/recommended/04_dashboard-configmap.yaml; \
-	echo '{"apiVersion": "rbac.authorization.k8s.io/v1","kind": "ClusterRoleBinding","metadata": {"name": "kubernetes-dashboard","namespace": "kubernetes-dashboard"},"roleRef": {"apiGroup": "rbac.authorization.k8s.io","kind": "ClusterRole","name": "cluster-admin"},"subjects": [{"kind": "ServiceAccount","name": "kubernetes-dashboard","namespace": "kubernetes-dashboard"}]}' | local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' -n kubernetes-dashboard apply -f - ; \
-	local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-rc2/aio/deploy/recommended/06_dashboard-deployment.yaml; \
-	local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-rc2/aio/deploy/recommended/07_scraper-service.yaml; \
-	local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-rc2/aio/deploy/recommended/08_scraper-deployment.yaml; \
-	local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' -n kubernetes-dashboard patch deployment kubernetes-dashboard --patch '{"spec": {"template": {"spec": {"containers": [{"name": "kubernetes-dashboard","args": ["--auto-generate-certificates","--namespace=kubernetes-dashboard","--enable-skip-login"]}]}}}}'; \
-	local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' -n kubernetes-dashboard rollout status deployment kubernetes-dashboard -w; \
-	open http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/ ; \
-	local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' proxy
-
-k8s-dashboard:
-	kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-rc2/aio/deploy/recommended.yaml; \
-	kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' -n kubernetes-dashboard rollout status deployment kubernetes-dashboard -w; \
-	echo -e "\nUse this token:"; \
-	kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' -n lagoon describe secret $$(local-dev/kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' -n lagoon get secret | grep kubernetesbuilddeploy | awk '{print $$1}') | grep token: | awk '{print $$2}'; \
-	open http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/ ; \
-	kubectl --kubeconfig="$$(./local-dev/k3d get-kubeconfig --name='$(K3D_NAME)')" --context='$(K3D_NAME)' proxy
-
-# Stop k3d
-.PHONY: k3d/stop
-k3d/stop: local-dev/k3d
-	./local-dev/k3d delete --name=$$(cat k3d) || true
-	rm -f k3d
-
-# Stop All k3d
-.PHONY: k3d/stopall
-k3d/stopall: local-dev/k3d
-	./local-dev/k3d delete --all || true
-	rm -f k3d
-
-# Stop k3d, remove downloaded k3d
-.PHONY: k3d/clean
-k3d/clean: k3d/stop
-	rm -rf ./local-dev/k3d
-
-# Stop All k3d, remove downloaded k3d
-.PHONY: k3d/cleanall
-k3d/cleanall: k3d/stopall
-	rm -rf ./local-dev/k3d
-
-# Configures Kubernetes to use with Lagoon
-.PHONY: kubernetes-lagoon-setup
-kubernetes-lagoon-setup:
-	kubectl create namespace lagoon; \
-	local-dev/helm/helm upgrade --install -n lagoon lagoon-remote ./charts/lagoon-remote; \
-	echo -e "\n\nAll Setup, use this token as described in the Lagoon Install Documentation:";
-	$(MAKE) kubernetes-get-kubernetesbuilddeploy-token
-
-.PHONY: kubernetes-get-kubernetesbuilddeploy-token
-kubernetes-get-kubernetesbuilddeploy-token:
-	kubectl -n lagoon describe secret $$(kubectl -n lagoon get secret | grep kubernetesbuilddeploy | awk '{print $$1}') | grep token: | awk '{print $$2}'
