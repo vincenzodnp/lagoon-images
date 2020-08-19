@@ -9,6 +9,11 @@ jobs:
     steps:
       - checkout
       - run:
+          name: Install Trivy and download DB
+          command: | 
+            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/master/contrib/install.sh | sh -s -- -b /usr/local/bin
+            trivy image --download-db-only
+      - run:
           name: Check installed versions
           command: |
             docker -v
