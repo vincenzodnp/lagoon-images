@@ -1,7 +1,7 @@
 pipeline {
     agent any 
     environment {
-        SYNC_MAKE_OUTPUT = 'none'
+        SYNC_MAKE_OUTPUT = "none"
     }
     stages {
         stage("Set Env Variables") {
@@ -43,9 +43,7 @@ pipeline {
 
         stage('build images') { 
             steps {
-                script {
-                    make -O$SYNC_MAKE_OUTPUT -j8 build
-                }
+                sh 'make -O$SYNC_MAKE_OUTPUT -j8 build'
             }
         }
 
