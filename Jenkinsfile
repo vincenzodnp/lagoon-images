@@ -15,9 +15,7 @@ pipeline {
 
         stage("Show all Variables") {
             steps {
-                script {
-                    printenv
-                }
+                sh 'printenv'
             }
         }
 
@@ -35,9 +33,7 @@ pipeline {
                 buildingTag()
             }
             steps {
-                script {
-                    docker image prune -af
-                }
+                sh 'docker image prune -af'
             }
         }
 
@@ -49,9 +45,7 @@ pipeline {
 
         stage('show built images') { 
             steps {
-                script {
-                    docker image ls | sort -u
-                }
+                sh 'docker image ls | sort -u'
             }
         }
 
