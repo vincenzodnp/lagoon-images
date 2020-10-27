@@ -44,7 +44,7 @@ pipeline {
         stage('build images') { 
             steps {
                 script {
-                    make -O${SYNC_MAKE_OUTPUT} -j8 build
+                    make -O$SYNC_MAKE_OUTPUT -j8 build
                 }
             }
         }
