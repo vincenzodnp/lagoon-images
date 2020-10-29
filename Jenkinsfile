@@ -4,6 +4,7 @@ pipeline {
         SYNC_MAKE_OUTPUT = "none"
         AWS_BUCKET = "jobs.amazeeio.services"
         AWS_DEFAULT_REGION = "us-east-2"
+        SKIP_IMAGE_PUBLISH = credentials('SKIP_IMAGE_PUBLISH')
     }
     stages {
         stage("Set Env Variables") {
@@ -67,6 +68,42 @@ pipeline {
             }
         }
 
+        stage('push tagged images to uselagoon/* and amazeeio/*') { 
+            when { 
+                buildingTag()
+                not {
+                    environment name: 'SKIP_IMAGE_PUBLISH', value: 'true' 
+                }
+            }
+            environment { 
+                PASSWORD = credentials('amazeeiojenkins-dockerhub-password') 
+            }
+            steps {
+                sh 'docker login -u amazeeiojenkins -p $PASSWORD'
+                sh 'make -O$SYNC_MAKE_OUTPUT -j8 publish-uselagoon-baseimages BRANCH_NAME=$SAFEBRANCH_NAME'
+                sh 'make -O$SYNC_MAKE_OUTPUT -j8 publish-amazeeio-baseimages BRANCH_NAME=$SAFEBRANCH_NAME'
+            }
+        }
+
+        stage('push main branch images to s3 and testlagoon/*:latest') { 
+            when { 
+                buildingTag()
+                not {
+                    environment name: 'SKIP_IMAGE_PUBLISH', value: 'true' 
+                }
+            }
+            environment { 
+                AWS_CREDS = credentials('aws-s3-lagoon') 
+            }
+            steps {
+                script {
+                    env.AWS_ACCESS_KEY_ID = AWS_CREDS_USR
+                    env.AWS_SECRET_ACCESS_KEY = AWS_CREDS_PSW
+                }
+                sh 'make -O$SYNC_MAKE_OUTPUT -j8 s3-save'
+                sh 'make -O$SYNC_MAKE_OUTPUT -j8 publish-testlagoon-baseimages BRANCH_NAME=latest'
+            }
+        }
 
 
     }
