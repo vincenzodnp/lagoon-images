@@ -30,8 +30,8 @@ pipeline {
             }
             steps {
                 script {
-                    env.UPSTREAM_REPO = ${DOCKER_ORG}
-                    env.UPSTREAM_TAG = ${DOCKER_TAG}
+                    env.UPSTREAM_REPO = ${params.DOCKER_ORG}
+                    env.UPSTREAM_TAG = ${params.DOCKER_TAG}
                 }
             }
         }
