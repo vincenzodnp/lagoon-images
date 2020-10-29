@@ -28,6 +28,9 @@ pipeline {
                     string(name: 'DOCKER_TAG', defaultValue: "latest", description: 'which Docker tag to pull')
                 }  
             }
+            steps {
+                echo "set DOCKER_ORG to ${DOCKER_ORG} and DOCKER_TAG to ${DOCKER_TAG}"
+            }
         }
 
         stage("Show all Variables") {
