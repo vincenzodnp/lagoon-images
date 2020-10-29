@@ -28,16 +28,13 @@ pipeline {
                     string(name: 'DOCKER_TAG', defaultValue: "latest", description: 'which Docker tag to pull')
                 }  
             }
-            steps {
-                script {
-                    echo "setting org to ${params.DOCKER_ORG} and tag to ${DOCKER_TAG} "
-                    env.UPSTREAM_REPO = params.DOCKER_ORG
-                    env.UPSTREAM_TAG = params.DOCKER_TAG
-                }
-            }
         }
 
         stage("Show all Variables") {
+            environment { 
+                UPSTREAM_REPO = "${params.DOCKER_ORG}"
+                UPSTREAM_TAG = "${params.DOCKER_TAG}"
+            }
             steps {
                 sh 'printenv'
             }
