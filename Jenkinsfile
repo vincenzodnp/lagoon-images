@@ -16,6 +16,23 @@ pipeline {
             }
         }
 
+        stage('set correct repo and tag') {
+            when {
+                beforeInput true
+                triggeredBy 'UserIdCause'
+            }
+            input {
+                message "Which Repo and Tag should we pull from?"
+                parameters {
+                    string(name: 'DOCKER_ORG', defaultValue: "uselagoon", description: 'which Docker org to pull from')
+                    string(name: 'DOCKER_TAG', defaultValue: "latest", description: 'which Docker tag to pull')
+                }  
+            }
+            steps {
+                sh 'docker pull ${DOCKER_ORG}/nginx:${DOCKER_TAG}'
+            }
+        }
+
         stage("Show all Variables") {
             steps {
                 sh 'printenv'
