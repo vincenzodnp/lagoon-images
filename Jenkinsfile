@@ -16,7 +16,7 @@ pipeline {
             }
         }
 
-        stage('set correct repo and tag') {
+        stage('set upstream repo and tag for Docker') {
             when {
                 beforeInput true
                 triggeredBy 'UserIdCause'
@@ -29,7 +29,10 @@ pipeline {
                 }  
             }
             steps {
-                sh 'docker pull ${DOCKER_ORG}/nginx:${DOCKER_TAG}'
+                script {
+                    env.UPSTREAM_REPO = ${DOCKER_ORG}
+                    env.UPSTREAM_TAG = ${DOCKER_TAG}
+                }
             }
         }
 
