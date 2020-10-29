@@ -30,6 +30,7 @@ pipeline {
             }
             steps {
                 script {
+                    echo "setting org to ${params.DOCKER_ORG} and tag to ${DOCKER_TAG} "
                     env.UPSTREAM_REPO = params.DOCKER_ORG
                     env.UPSTREAM_TAG = params.DOCKER_TAG
                 }
