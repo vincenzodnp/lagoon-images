@@ -23,13 +23,14 @@ pipeline {
 
         stage ('download') {
             steps {
+                deleteDir()
                 script {
                     def checkout = checkout scm
                     env.GIT_COMMIT = checkout.GIT_COMMIT
                 }
             }
         }
-
+        
         stage('clean docker image cache') { 
             when {
                 buildingTag()
