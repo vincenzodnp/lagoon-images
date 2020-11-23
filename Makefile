@@ -173,6 +173,7 @@ versioned-images := 		php-7.2-fpm \
 							logstash-6 \
 							logstash-7 \
 							postgres-12 \
+							postgres-12-drupal \
 							redis-6 \
 							redis-6-persistent
 
@@ -232,6 +233,7 @@ build/solr-6.6-ckan: build/solr-6.6
 build/elasticsearch-6 build/elasticsearch-7 build/kibana-6 build/kibana-7 build/logstash-6 build/logstash-7: build/commons
 build/postgres-11 build/postgres-12: build/commons
 build/postgres-11-ckan build/postgres-11-drupal: build/postgres-11
+build/postgres-12-drupal: build/postgres-12
 build/redis-5 build/redis-6: build/commons
 build/redis-5-persistent: build/redis-5
 build/redis-5 build/redis-6: build/commons
