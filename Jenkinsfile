@@ -10,8 +10,8 @@ pipeline {
         stage("Set Env Variables") {
             steps {
                 script {
-                    env.CI_BUILD_TAG = env.BUILD_TAG.replaceAll('%2f','').replaceAll("[^A-Za-z0-9]+", "").toLowerCase()
-                    env.SAFEBRANCH_NAME = env.BRANCH_NAME.replaceAll('%2f','-').replaceAll("[^A-Za-z0-9]+", "-").toLowerCase()
+                    env.CI_BUILD_TAG = env.JOB_BASE_NAME.replaceAll('%2F','').replaceAll("[^A-Za-z0-9]+", "").toLowerCase()
+                    env.SAFEBRANCH_NAME = env.JOB_BASE_NAME.replaceAll('%2F','-').replaceAll("[^A-Za-z0-9]+", "-").toLowerCase()
                 }
             }
         }
