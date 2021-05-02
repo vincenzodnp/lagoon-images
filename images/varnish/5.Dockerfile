@@ -14,7 +14,7 @@ RUN cd /tmp && curl -sSLO https://github.com/aondio/libvmod-bodyaccess/archive/$
   unzip ${LIBVMOD_BODYACCESS_VERSION}.zip && cd libvmod-bodyaccess-${LIBVMOD_BODYACCESS_VERSION} && \
   ./autogen.sh && ./configure && make && make install
 
-FROM alpine:3.7
+FROM alpine:3.12.7
 
 LABEL org.opencontainers.image.authors="The Lagoon Authors" maintainer="The Lagoon Authors"
 LABEL org.opencontainers.image.source="https://github.com/uselagoon/lagoon-images" repository="https://github.com/uselagoon/lagoon-images"
@@ -38,7 +38,10 @@ ENV TMPDIR=/tmp \
     # When Bash is invoked as non-interactive (like `bash -c command`) it sources a file that is given in `BASH_ENV`
     BASH_ENV=/home/.bashrc
 
-RUN apk --no-cache add varnish
+RUN echo 'http://dl-cdn.alpinelinux.org/alpine/v3.7/main' >> /etc/apk/repositories
+RUN echo 'http://dl-cdn.alpinelinux.org/alpine/v3.7/community' >> /etc/apk/repositories
+RUN apk update
+RUN apk add varnish=5.2.1-r0
 
 # Add varnish mod after the varnish package creates the directory.
 COPY --from=vmod /usr/lib/varnish/vmods/libvmod_dynamic.* /usr/lib/varnish/vmods/
