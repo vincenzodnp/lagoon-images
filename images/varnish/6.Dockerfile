@@ -2,8 +2,8 @@ ARG IMAGE_REPO
 FROM ${IMAGE_REPO:-lagoon}/commons as commons
 
 FROM varnish:6.6 as vmod
-ENV LIBVMOD_DYNAMIC_VERSION=6.5
-ENV VARNISH_MODULES_VERSION=6.5
+ENV LIBVMOD_DYNAMIC_VERSION=6.6
+ENV VARNISH_MODULES_VERSION=6.6
 RUN apt-get update && apt-get -y install build-essential automake libtool python-docutils libpcre3-dev varnish-dev curl zip
 
 RUN cd /tmp && curl -sSLO https://github.com/nigoroll/libvmod-dynamic/archive/${LIBVMOD_DYNAMIC_VERSION}.zip && \
